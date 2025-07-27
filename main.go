@@ -75,7 +75,8 @@ func main() {
 	mux.HandleFunc("GET /api/healthz", healthzHandler)
 	mux.HandleFunc("POST /api/validate_chirp", validateChirpHandler)
 	mux.HandleFunc("POST /api/users", apiCfg.usersHandler)
-	mux.HandleFunc("POST /api/chirps", apiCfg.chirpsHandler)
+	mux.HandleFunc("POST /api/chirps", apiCfg.postChirpHandler)
+	mux.HandleFunc("GET /api/chirps", apiCfg.getChirpsHandler)
 	mux.Handle("/api/assets", http.FileServer(http.Dir("./assets")))
 
 	mux.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)

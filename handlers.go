@@ -120,7 +120,7 @@ func (cfg *apiConfig) usersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(userJSON)
 }
 
-func (cfg *apiConfig) chirpsHandler(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) postChirpHandler(w http.ResponseWriter, r *http.Request) {
 	type requestChirp struct {
 		Body   string    `json:"body"`
 		UserID uuid.UUID `json:"user_id"`
@@ -163,4 +163,36 @@ func (cfg *apiConfig) chirpsHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	w.Write(chirpJSON)
+}
+
+func (cfg *apiConfig) getChirpsHandler(w http.ResponseWriter, r *http.Request) {
+	dbChirps, err := cfg.dbQueries.GetAllChirps(r.Context())
+	if err != nil {
+		log.Printf("error getting chirps from db: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	var chirps []Chirp
+	for _, chirp := range dbChirps {
+		cToAdd := Chirp{
+			ID:        chirp.ID,
+			CreatedAt: chirp.CreatedAt,
+			UpdatedAt: chirp.UpdatedAt,
+			Body:      chirp.Body,
+			UserID:    chirp.UserID,
+		}
+		chirps = append(chirps, cToAdd)
+	}
+
+	chirpsJSON, err := json.Marshal(chirps)
+	if err != nil {
+		log.Printf("error decoding chirps into JSON: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(chirpsJSON)
 }
