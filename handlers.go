@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/AliBa1/chirpy/internal/database"
+	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 )
 
@@ -116,4 +118,49 @@ func (cfg *apiConfig) usersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	w.Write(userJSON)
+}
+
+func (cfg *apiConfig) chirpsHandler(w http.ResponseWriter, r *http.Request) {
+	type requestChirp struct {
+		Body   string    `json:"body"`
+		UserID uuid.UUID `json:"user_id"`
+	}
+
+	var reqChirp requestChirp
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&reqChirp)
+	if err != nil {
+		log.Printf("error decoding request for new chirp: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	newChirpParams := database.CreateChirpParams{
+		Body:   reqChirp.Body,
+		UserID: reqChirp.UserID,
+	}
+	dbChirp, err := cfg.dbQueries.CreateChirp(r.Context(), newChirpParams)
+	if err != nil {
+		log.Printf("error creating chirp in the database: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	chirp := Chirp{
+		ID:        dbChirp.ID,
+		CreatedAt: dbChirp.CreatedAt,
+		UpdatedAt: dbChirp.UpdatedAt,
+		Body:      dbChirp.Body,
+		UserID:    dbChirp.UserID,
+	}
+	chirpJSON, err := json.Marshal(chirp)
+	if err != nil {
+		log.Printf("error marshaling chirp into JSON: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	w.Write(chirpJSON)
 }
