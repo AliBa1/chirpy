@@ -1,13 +1,31 @@
 package main
 
 import (
-	"fmt"
+	"database/sql"
+	"log"
 	"net/http"
+	"os"
+	"slices"
+	"strings"
 	"sync/atomic"
+	"time"
+
+	"github.com/AliBa1/chirpy/internal/database"
+	"github.com/google/uuid"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
 )
 
 type apiConfig struct {
 	fileserverHits atomic.Int32
+	dbQueries      *database.Queries
+}
+
+type User struct {
+	ID        uuid.UUID `json:"id"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+	Email     string    `json:"email"`
 }
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
@@ -17,45 +35,44 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	})
 }
 
-func (cfg *apiConfig) metricsHandler(w http.ResponseWriter, r *http.Request) {
-	// w.Write(fmt.Appendf([]byte("Hits: "), "%d", cfg.fileserverHits.Load()))
+func replaceProfanity(message string) string {
+	profaneWords := []string{"kerfuffle", "sharbert", "fornax"}
+	// message = strings.ToLower(message)
+	splitMessage := strings.Split(message, " ")
+	for i, word := range splitMessage {
+		if slices.Contains(profaneWords, strings.ToLower(word)) {
+			splitMessage[i] = "****"
+		}
+	}
 
-	w.Header().Set("Content-Type", "text/html")
-	w.Write([]byte(fmt.Sprintf(`
-		<html>
-		  <body>
-		    <h1>Welcome, Chirpy Admin</h1>
-		    <p>Chirpy has been visited %d times!</p>
-		  </body>
-		</html>
-	`, cfg.fileserverHits.Load())))
-
-}
-
-func (cfg *apiConfig) resetHandler(w http.ResponseWriter, r *http.Request) {
-	cfg.fileserverHits.Store(0)
-}
-
-func healthzHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(200)
-	w.Write([]byte("OK"))
+	return strings.Join(splitMessage, " ")
 }
 
 func main() {
-	apiCfg := apiConfig{}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/healthz", healthzHandler)
-	mux.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
-	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
-	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app/", http.FileServer(http.Dir(".")))))
-	mux.Handle("/api/assets", http.FileServer(http.Dir("./assets")))
-	server := http.Server{
-		Handler: mux,
-		Addr:    ":8080",
-	}
-	err := server.ListenAndServe()
+	godotenv.Load()
+	dbURL := os.Getenv("DB_URL")
+	db, err := sql.Open("postgres", dbURL)
 	if err != nil {
+		log.Printf("failed to open database: %v\n", err)
 		return
 	}
+	dbQueries := database.New(db)
+
+	apiCfg := apiConfig{
+		dbQueries: dbQueries,
+	}
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /api/healthz", healthzHandler)
+	mux.HandleFunc("POST /api/validate_chirp", validateChirpHandler)
+	mux.HandleFunc("POST /api/users", apiCfg.usersHandler)
+	mux.Handle("/api/assets", http.FileServer(http.Dir("./assets")))
+
+	mux.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)
+	mux.HandleFunc("POST /admin/reset", apiCfg.resetHandler)
+
+	mux.Handle("/app/", apiCfg.middlewareMetricsInc(http.StripPrefix("/app/", http.FileServer(http.Dir(".")))))
+
+	log.Fatal(http.ListenAndServe(":8080", mux))
 }
