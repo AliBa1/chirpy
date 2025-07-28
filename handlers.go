@@ -5,9 +5,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
+	"github.com/AliBa1/chirpy/internal/auth"
 	"github.com/AliBa1/chirpy/internal/database"
-	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 )
 
@@ -83,7 +84,8 @@ func validateChirpHandler(w http.ResponseWriter, r *http.Request) {
 
 func (cfg *apiConfig) usersHandler(w http.ResponseWriter, r *http.Request) {
 	type request struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Password string `json:"password"`
 	}
 
 	var reqData request
@@ -95,7 +97,18 @@ func (cfg *apiConfig) usersHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dbUser, err := cfg.dbQueries.CreateUser(r.Context(), reqData.Email)
+	reqData.Password, err = auth.HashPassword(reqData.Password)
+	if err != nil {
+		log.Printf("error hashing password: %s\n", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	createUserParams := database.CreateUserParams{
+		Email:          reqData.Email,
+		HashedPassword: reqData.Password,
+	}
+	dbUser, err := cfg.dbQueries.CreateUser(r.Context(), createUserParams)
 	if err != nil {
 		log.Printf("error creating user: %s", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -120,79 +133,184 @@ func (cfg *apiConfig) usersHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(userJSON)
 }
 
-func (cfg *apiConfig) postChirpHandler(w http.ResponseWriter, r *http.Request) {
-	type requestChirp struct {
-		Body   string    `json:"body"`
-		UserID uuid.UUID `json:"user_id"`
+func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
+	type request struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+		// ExpiresInSeconds *int   `json:"expires_in_seconds"`
 	}
 
-	var reqChirp requestChirp
+	var reqData request
 	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(&reqChirp)
+	err := decoder.Decode(&reqData)
 	if err != nil {
-		log.Printf("error decoding request for new chirp: %s", err)
+		log.Printf("error decoding request body: %s", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	newChirpParams := database.CreateChirpParams{
-		Body:   reqChirp.Body,
-		UserID: reqChirp.UserID,
-	}
-	dbChirp, err := cfg.dbQueries.CreateChirp(r.Context(), newChirpParams)
+	dbUser, err := cfg.dbQueries.GetUserByEmail(r.Context(), reqData.Email)
 	if err != nil {
-		log.Printf("error creating chirp in the database: %s", err)
+		log.Printf("error getting user by email: %s\n", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	chirp := Chirp{
-		ID:        dbChirp.ID,
-		CreatedAt: dbChirp.CreatedAt,
-		UpdatedAt: dbChirp.UpdatedAt,
-		Body:      dbChirp.Body,
-		UserID:    dbChirp.UserID,
-	}
-	chirpJSON, err := json.Marshal(chirp)
+	err = auth.CheckPasswordHash(reqData.Password, dbUser.HashedPassword)
 	if err != nil {
-		log.Printf("error marshaling chirp into JSON: %s", err)
+		log.Printf("password doesn't match hashed: %s\n", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	tokenExpiresIn := time.Hour
+	// if reqData.ExpiresInSeconds != nil {
+	// 	tokenExpiresIn = time.Duration(*reqData.ExpiresInSeconds)
+	// }
+
+	jwtToken, err := auth.MakeJWT(dbUser.ID, cfg.jwtSecret, tokenExpiresIn)
+	if err != nil {
+		log.Printf("error making JWT token: %s\n", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	refreshToken, err := auth.MakeRefreshToken()
+	if err != nil {
+		log.Printf("error making refresh token: %s\n", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	w.Write(chirpJSON)
-}
-
-func (cfg *apiConfig) getChirpsHandler(w http.ResponseWriter, r *http.Request) {
-	dbChirps, err := cfg.dbQueries.GetAllChirps(r.Context())
+	createRefTokenParams := database.CreateRefreshTokenParams{
+		Token:  refreshToken,
+		UserID: dbUser.ID,
+	}
+	_, err = cfg.dbQueries.CreateRefreshToken(r.Context(), createRefTokenParams)
 	if err != nil {
-		log.Printf("error getting chirps from db: %s", err)
+		log.Printf("error creating refresh token in database: %s\n", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	var chirps []Chirp
-	for _, chirp := range dbChirps {
-		cToAdd := Chirp{
-			ID:        chirp.ID,
-			CreatedAt: chirp.CreatedAt,
-			UpdatedAt: chirp.UpdatedAt,
-			Body:      chirp.Body,
-			UserID:    chirp.UserID,
-		}
-		chirps = append(chirps, cToAdd)
+	type response struct {
+		User         User
+		Token        string `json:"token"`
+		RefreshToken string `json:"refresh_token"`
 	}
-
-	chirpsJSON, err := json.Marshal(chirps)
+	user := User{
+		ID:        dbUser.ID,
+		CreatedAt: dbUser.CreatedAt,
+		UpdatedAt: dbUser.UpdatedAt,
+		Email:     dbUser.Email,
+	}
+	res := response{
+		User:         user,
+		Token:        jwtToken,
+		RefreshToken: refreshToken,
+	}
+	resJSON, err := json.Marshal(res)
 	if err != nil {
-		log.Printf("error decoding chirps into JSON: %s", err)
+		log.Printf("error marshaling user into JSON: %s", err)
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(chirpsJSON)
+	w.Write(resJSON)
+}
+
+func (cfg *apiConfig) refreshHandler(w http.ResponseWriter, r *http.Request) {
+	refreshToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		log.Printf("error getting refresh token: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	user, err := cfg.dbQueries.GetUserFromRefreshToken(r.Context(), refreshToken)
+	if err != nil {
+		log.Printf("error getting user from refresh token: %s", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	accessToken, err := auth.MakeJWT(
+		user.ID,
+		cfg.jwtSecret,
+		time.Hour,
+	)
+	if err != nil {
+		log.Printf("error making JWT: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	type response struct {
+		Token string `json:"token"`
+	}
+	res := response{
+		Token: accessToken,
+	}
+	resJSON, err := json.Marshal(res)
+	if err != nil {
+		log.Printf("error getting token into JSON: %s", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(resJSON)
+}
+
+// func (cfg *apiConfig) refreshHandler(w http.ResponseWriter, r *http.Request) {
+// 	refreshToken, err := auth.GetBearerToken(r.Header)
+// 	if err != nil {
+// 		log.Printf("error getting refresh token: %s", err)
+// 		w.WriteHeader(http.StatusInternalServerError)
+// 		return
+// 	}
+// 	dbRefreshToken, err := cfg.dbQueries.GetRefreshToken(r.Context(), refreshToken)
+// 	if err != nil {
+// 		log.Printf("error getting refresh token from db: %s", err)
+// 		w.WriteHeader(http.StatusUnauthorized)
+// 		return
+// 	}
+//
+// 	type response struct {
+// 		Token string `json:"token"`
+// 	}
+// 	res := response{
+// 		Token: dbRefreshToken.Token,
+// 	}
+// 	resJSON, err := json.Marshal(res)
+// 	if err != nil {
+// 		log.Printf("error getting token into JSON: %s", err)
+// 		w.WriteHeader(http.StatusUnauthorized)
+// 		return
+// 	}
+//
+// 	w.Header().Set("Content-Type", "application/json")
+// 	w.WriteHeader(http.StatusOK)
+// 	w.Write(resJSON)
+// }
+
+func (cfg *apiConfig) revokeHandler(w http.ResponseWriter, r *http.Request) {
+	refreshToken, err := auth.GetBearerToken(r.Header)
+	if err != nil {
+		log.Printf("error getting refresh token: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	err = cfg.dbQueries.RevokeToken(r.Context(), refreshToken)
+	if err != nil {
+		log.Printf("error revoking refresh token: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
