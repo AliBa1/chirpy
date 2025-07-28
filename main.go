@@ -80,7 +80,8 @@ func main() {
 
 	mux.HandleFunc("GET /api/healthz", healthzHandler)
 	mux.HandleFunc("POST /api/validate_chirp", validateChirpHandler)
-	mux.HandleFunc("POST /api/users", apiCfg.usersHandler)
+	mux.HandleFunc("POST /api/users", apiCfg.postUsersHandler)
+	mux.HandleFunc("PUT /api/users", apiCfg.putUsersHandler)
 	mux.HandleFunc("POST /api/chirps", apiCfg.postChirpHandler)
 	mux.HandleFunc("GET /api/chirps", apiCfg.getChirpsHandler)
 	mux.HandleFunc("GET /api/chirps/{id}", apiCfg.getChirpHandler)

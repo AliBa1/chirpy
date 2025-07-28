@@ -82,7 +82,7 @@ func validateChirpHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(responseJSON)
 }
 
-func (cfg *apiConfig) usersHandler(w http.ResponseWriter, r *http.Request) {
+func (cfg *apiConfig) postUsersHandler(w http.ResponseWriter, r *http.Request) {
 	type request struct {
 		Email    string `json:"email"`
 		Password string `json:"password"`
@@ -265,38 +265,6 @@ func (cfg *apiConfig) refreshHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(resJSON)
 }
 
-// func (cfg *apiConfig) refreshHandler(w http.ResponseWriter, r *http.Request) {
-// 	refreshToken, err := auth.GetBearerToken(r.Header)
-// 	if err != nil {
-// 		log.Printf("error getting refresh token: %s", err)
-// 		w.WriteHeader(http.StatusInternalServerError)
-// 		return
-// 	}
-// 	dbRefreshToken, err := cfg.dbQueries.GetRefreshToken(r.Context(), refreshToken)
-// 	if err != nil {
-// 		log.Printf("error getting refresh token from db: %s", err)
-// 		w.WriteHeader(http.StatusUnauthorized)
-// 		return
-// 	}
-//
-// 	type response struct {
-// 		Token string `json:"token"`
-// 	}
-// 	res := response{
-// 		Token: dbRefreshToken.Token,
-// 	}
-// 	resJSON, err := json.Marshal(res)
-// 	if err != nil {
-// 		log.Printf("error getting token into JSON: %s", err)
-// 		w.WriteHeader(http.StatusUnauthorized)
-// 		return
-// 	}
-//
-// 	w.Header().Set("Content-Type", "application/json")
-// 	w.WriteHeader(http.StatusOK)
-// 	w.Write(resJSON)
-// }
-
 func (cfg *apiConfig) revokeHandler(w http.ResponseWriter, r *http.Request) {
 	refreshToken, err := auth.GetBearerToken(r.Header)
 	if err != nil {
@@ -313,4 +281,70 @@ func (cfg *apiConfig) revokeHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (cfg *apiConfig) putUsersHandler(w http.ResponseWriter, r *http.Request) {
+	accessToken, err := auth.GetBearerToken(r.Header)
+	if err != nil || accessToken == "" {
+		log.Printf("error getting access token: %s", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	userID, err := auth.ValidateJWT(accessToken, cfg.jwtSecret)
+	if err != nil {
+		log.Printf("error getting user id from access token: %s", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+
+	type request struct {
+		Email    string `json:"email"`
+		Password string `json:"password"`
+	}
+
+	var reqData request
+	decoder := json.NewDecoder(r.Body)
+	err = decoder.Decode(&reqData)
+	if err != nil {
+		log.Printf("error decoding request data: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	hashedPassword, err := auth.HashPassword(reqData.Password)
+	if err != nil {
+		log.Printf("error hashing password: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	updateUserParams := database.UpdateUserParams{
+		Email:          reqData.Email,
+		HashedPassword: hashedPassword,
+		ID:             userID,
+	}
+	dbUpdatedUser, err := cfg.dbQueries.UpdateUser(r.Context(), updateUserParams)
+	if err != nil {
+		log.Printf("error updating user: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	updatedUser := User{
+		ID:        dbUpdatedUser.ID,
+		CreatedAt: dbUpdatedUser.CreatedAt,
+		UpdatedAt: dbUpdatedUser.UpdatedAt,
+		Email:     dbUpdatedUser.Email,
+	}
+	updatedUserJSON, err := json.Marshal(updatedUser)
+	if err != nil {
+		log.Printf("error marshaling user into json: %s", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write(updatedUserJSON)
 }
