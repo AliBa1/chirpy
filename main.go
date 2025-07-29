@@ -7,35 +7,11 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"sync/atomic"
-	"time"
 
 	"github.com/AliBa1/chirpy/internal/database"
-	"github.com/google/uuid"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 )
-
-type apiConfig struct {
-	fileserverHits atomic.Int32
-	dbQueries      *database.Queries
-	jwtSecret      string
-}
-
-type User struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Email     string    `json:"email"`
-}
-
-type Chirp struct {
-	ID        uuid.UUID `json:"id"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Body      string    `json:"body"`
-	UserID    uuid.UUID `json:"user_id"`
-}
 
 func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -46,7 +22,6 @@ func (cfg *apiConfig) middlewareMetricsInc(next http.Handler) http.Handler {
 
 func replaceProfanity(message string) string {
 	profaneWords := []string{"kerfuffle", "sharbert", "fornax"}
-	// message = strings.ToLower(message)
 	splitMessage := strings.Split(message, " ")
 	for i, word := range splitMessage {
 		if slices.Contains(profaneWords, strings.ToLower(word)) {
@@ -85,6 +60,7 @@ func main() {
 	mux.HandleFunc("POST /api/chirps", apiCfg.postChirpHandler)
 	mux.HandleFunc("GET /api/chirps", apiCfg.getChirpsHandler)
 	mux.HandleFunc("GET /api/chirps/{id}", apiCfg.getChirpHandler)
+	mux.HandleFunc("DELETE /api/chirps/{chirpID}", apiCfg.deleteChirpHandler)
 	mux.HandleFunc("POST /api/login", apiCfg.loginHandler)
 	mux.HandleFunc("POST /api/refresh", apiCfg.refreshHandler)
 	mux.HandleFunc("POST /api/revoke", apiCfg.revokeHandler)
