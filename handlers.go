@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/AliBa1/chirpy/internal/auth"
+	"github.com/google/uuid"
 	_ "github.com/lib/pq"
 )
 
@@ -77,4 +79,51 @@ func validateChirpHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	w.Write(responseJSON)
+}
+
+func (cfg *apiConfig) polkaWebhookHandler(w http.ResponseWriter, r *http.Request) {
+	apiKey, err := auth.GetAPIKey(r.Header)
+	if err != nil || apiKey != cfg.polkaKey {
+		log.Printf("error getting api key or missing in header: %s\n", err)
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	type reqData struct {
+		UserID string `json:"user_id"`
+	}
+
+	type requestStruct struct {
+		Event string  `json:"event"`
+		Data  reqData `json:"data"`
+	}
+
+	var request requestStruct
+	decoder := json.NewDecoder(r.Body)
+	err = decoder.Decode(&request)
+	if err != nil {
+		log.Printf("error decoding polka webhook request into json: %s\n", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	if request.Event != "user.upgraded" {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	userID, err := uuid.Parse(request.Data.UserID)
+	if err != nil {
+		log.Printf("error parsing user id: %s\n", err)
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	err = cfg.dbQueries.UpgradeToChirpyRed(r.Context(), userID)
+	if err != nil {
+		log.Printf("error upgrading to chirpy red: %s\n", err)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }

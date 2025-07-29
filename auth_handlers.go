@@ -46,7 +46,8 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
 	// 	tokenExpiresIn = time.Duration(*reqData.ExpiresInSeconds)
 	// }
 
-	jwtToken, err := auth.MakeJWT(dbUser.ID, cfg.jwtSecret, tokenExpiresIn)
+	// jwtToken, err := auth.MakeJWT(dbUser.ID, cfg.jwtSecret, tokenExpiresIn)
+	_, err = auth.MakeJWT(dbUser.ID, cfg.jwtSecret, tokenExpiresIn)
 	if err != nil {
 		log.Printf("error making JWT token: %s\n", err)
 		w.WriteHeader(http.StatusUnauthorized)
@@ -77,17 +78,19 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
 		RefreshToken string `json:"refresh_token"`
 	}
 	user := User{
-		ID:        dbUser.ID,
-		CreatedAt: dbUser.CreatedAt,
-		UpdatedAt: dbUser.UpdatedAt,
-		Email:     dbUser.Email,
+		ID:          dbUser.ID,
+		CreatedAt:   dbUser.CreatedAt,
+		UpdatedAt:   dbUser.UpdatedAt,
+		Email:       dbUser.Email,
+		IsChirpyRed: dbUser.IsChirpyRed.Bool,
 	}
-	res := response{
-		User:         user,
-		Token:        jwtToken,
-		RefreshToken: refreshToken,
-	}
-	resJSON, err := json.Marshal(res)
+	// res := response{
+	// 	User:         user,
+	// 	Token:        jwtToken,
+	// 	RefreshToken: refreshToken,
+	// }
+	// resJSON, err := json.Marshal(res)
+	userJSON, err := json.Marshal(user)
 	if err != nil {
 		log.Printf("error marshaling user into JSON: %s", err)
 		w.WriteHeader(http.StatusInternalServerError)
@@ -96,7 +99,8 @@ func (cfg *apiConfig) loginHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(resJSON)
+	// w.Write(resJSON)
+	w.Write(userJSON)
 }
 
 func (cfg *apiConfig) refreshHandler(w http.ResponseWriter, r *http.Request) {

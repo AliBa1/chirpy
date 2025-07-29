@@ -36,6 +36,7 @@ func main() {
 	godotenv.Load()
 	dbURL := os.Getenv("DB_URL")
 	jwtSecret := os.Getenv("SECRET")
+	polkaKey := os.Getenv("POLKA_KEY")
 	if jwtSecret == "" {
 		log.Fatal("Missing JWT secret")
 	}
@@ -49,6 +50,7 @@ func main() {
 	apiCfg := apiConfig{
 		dbQueries: dbQueries,
 		jwtSecret: jwtSecret,
+		polkaKey:  polkaKey,
 	}
 
 	mux := http.NewServeMux()
@@ -64,6 +66,7 @@ func main() {
 	mux.HandleFunc("POST /api/login", apiCfg.loginHandler)
 	mux.HandleFunc("POST /api/refresh", apiCfg.refreshHandler)
 	mux.HandleFunc("POST /api/revoke", apiCfg.revokeHandler)
+	mux.HandleFunc("POST /api/polka/webhooks", apiCfg.polkaWebhookHandler)
 	mux.Handle("/api/assets", http.FileServer(http.Dir("./assets")))
 
 	mux.HandleFunc("GET /admin/metrics", apiCfg.metricsHandler)

@@ -44,10 +44,11 @@ func (cfg *apiConfig) postUsersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := User{
-		ID:        dbUser.ID,
-		CreatedAt: dbUser.CreatedAt,
-		UpdatedAt: dbUser.UpdatedAt,
-		Email:     dbUser.Email,
+		ID:          dbUser.ID,
+		CreatedAt:   dbUser.CreatedAt,
+		UpdatedAt:   dbUser.UpdatedAt,
+		Email:       dbUser.Email,
+		IsChirpyRed: dbUser.IsChirpyRed.Bool,
 	}
 	userJSON, err := json.Marshal(user)
 	if err != nil {
@@ -110,10 +111,11 @@ func (cfg *apiConfig) putUsersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	updatedUser := User{
-		ID:        dbUpdatedUser.ID,
-		CreatedAt: dbUpdatedUser.CreatedAt,
-		UpdatedAt: dbUpdatedUser.UpdatedAt,
-		Email:     dbUpdatedUser.Email,
+		ID:          dbUpdatedUser.ID,
+		CreatedAt:   dbUpdatedUser.CreatedAt,
+		UpdatedAt:   dbUpdatedUser.UpdatedAt,
+		Email:       dbUpdatedUser.Email,
+		IsChirpyRed: dbUpdatedUser.IsChirpyRed.Bool,
 	}
 	updatedUserJSON, err := json.Marshal(updatedUser)
 	if err != nil {
